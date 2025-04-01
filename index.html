@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D 태양계 시뮬레이션 (궤도선, 배속 기능)</title> <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* 기본 스타일 */
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: 'Inter', sans-serif;
+            background-color: #000000; /* 검정 배경 */
+            color: #f3f4f6; /* 밝은 텍스트 */
+        }
+        /* 정보 텍스트 스타일 */
+        #info {
+            position: absolute;
+            top: 10px;
+            width: 100%;
+            text-align: center;
+            z-index: 100;
+            display:block;
+            padding: 10px;
+            background-color: rgba(0, 0, 0, 0.5); /* 반투명 검정 배경 */
+            border-radius: 8px; /* 둥근 모서리 */
+            color: #ffffff;
+        }
+        /* 캔버스 스타일 */
+        canvas { display: block; }
+
+        /* 속도 조절 컨트롤 스타일 */
+        #controls {
+            position: absolute;
+            bottom: 20px; /* 하단 여백 */
+            left: 50%;
+            transform: translateX(-50%); /* 가운데 정렬 */
+            display: flex;
+            align-items: center;
+            gap: 1rem; /* 요소 사이 간격 */
+            background-color: rgba(31, 41, 55, 0.8); /* 반투명 어두운 회색 배경 (bg-gray-800 opacity-80) */
+            padding: 0.75rem 1rem; /* 안쪽 여백 (p-3 px-4) */
+            border-radius: 0.5rem; /* 둥근 모서리 (rounded-lg) */
+            z-index: 110; /* 정보 텍스트보다 위에 오도록 */
+        }
+        #controls button {
+            padding: 0.5rem 1rem; /* 버튼 안쪽 여백 (py-2 px-4) */
+            background-color: #2563eb; /* 파란색 배경 (bg-blue-600) */
+            color: white;
+            border: none;
+            border-radius: 0.375rem; /* 둥근 모서리 (rounded-md) */
+            font-size: 1rem; /* 글자 크기 */
+            font-weight: 600; /* 글자 굵기 (font-semibold) */
+            cursor: pointer;
+            transition: background-color 0.2s; /* 부드러운 색상 전환 */
+            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06); /* 그림자 */
+        }
+        #controls button:hover {
+            background-color: #1d4ed8; /* 호버 시 약간 어두운 파란색 (hover:bg-blue-700) */
+        }
+        #speedDisplay {
+            color: white;
+            font-weight: 500; /* 글자 굵기 (font-medium) */
+            min-width: 80px; /* 최소 너비 확보 */
+            text-align: center;
+        }
+    </style>
+</head>
+<body class="bg-black text-gray-100">
+    <div id="info" class="text-sm md:text-base">
+        마우스를 드래그하여 회전, 휠로 확대/축소하세요. +/- 버튼으로 속도 조절.
+    </div>
+
+    <div id="controls">
+        <button id="slowDown" title="느리게">-</button>
+        <span id="speedDisplay">Speed: 1.0x</span>
+        <button id="speedUp" title="빠르게">+</button>
+    </div>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.163.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.163.0/examples/jsm/"
+            }
+        }
+    </script>
+
+    <script type="module">
+        // Three.js 및 OrbitControls 모듈 가져오기
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        // 전역 변수 선언
+        let scene, camera, renderer, controls;
+        const celestialBodies = []; // 태양, 행성 Mesh 객체 및 데이터
+
+        // --- 배속 기능 변수 ---
+        let timeScale = 0.5; // 초기 애니메이션 속도 배율
+        const minTimeScale = 0.1; // 최소 배속
+        const maxTimeScale = 10.0; // 최대 배속
+
+        // 속도 표시 업데이트 함수
+        function updateSpeedDisplay() {
+            const displayElement = document.getElementById('speedDisplay');
+            if (displayElement) {
+                displayElement.textContent = `Speed: ${timeScale.toFixed(1)}x`;
+            }
+        }
+
+        // 초기화 함수
+        function init() {
+            // Scene 생성
+            scene = new THREE.Scene();
+
+            // Camera 설정
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 3000);
+            camera.position.z = 120;
+            camera.position.y = 30;
+
+            // Renderer 설정
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.setClearColor(0x000000);
+            document.body.appendChild(renderer.domElement);
+
+            // Lighting 설정
+            const ambientLight = new THREE.AmbientLight(0x444444);
+            scene.add(ambientLight);
+
+            // --- 태양 생성 ---
+            const sunGeometry = new THREE.SphereGeometry(5, 32, 32);
+            const sunMaterial = new THREE.MeshBasicMaterial({ color: 0xffff00 });
+            const sun = new THREE.Mesh(sunGeometry, sunMaterial);
+            scene.add(sun);
+            celestialBodies.push({ mesh: sun, isPlanet: false });
+
+            // PointLight (태양 위치)
+            const pointLight = new THREE.PointLight(0xffffff, 3.5, 0, 0);
+            sun.add(pointLight);
+
+            // --- 행성 데이터 정의 ---
+            const planetData = [ // 로컬 변수로 변경해도 무방 (forEach 내에서만 사용)
+                { name: '수성', size: 0.5, color: 0xaaaaaa, distance: 10, period: 88 },
+                { name: '금성', size: 0.8, color: 0xffffe0, distance: 15, period: 225 },
+                { name: '지구', size: 1.0, color: 0x4682b4, distance: 21, period: 365 },
+                { name: '화성', size: 0.7, color: 0xff4500, distance: 30, period: 687 },
+                { name: '목성', size: 2.5, color: 0xffa500, distance: 50, period: 4333 },
+                { name: '토성', size: 2.0, color: 0xf4a460, distance: 75, period: 10759 },
+                { name: '천왕성', size: 1.5, color: 0xadd8e6, distance: 100, period: 30687 },
+                { name: '해왕성', size: 1.4, color: 0x00008b, distance: 130, period: 60190 },
+            ];
+
+            // --- 행성 생성 및 궤도선 그리기 ---
+            planetData.forEach(data => {
+                // 행성 Mesh 생성
+                const planetGeometry = new THREE.SphereGeometry(data.size, 32, 32);
+                const planetMaterial = new THREE.MeshStandardMaterial({
+                    color: data.color,
+                    roughness: 0.8,
+                    metalness: 0.2
+                });
+                const planet = new THREE.Mesh(planetGeometry, planetMaterial);
+                planet.position.x = data.distance; // 초기 위치
+                scene.add(planet);
+                celestialBodies.push({ mesh: planet, data: data, isPlanet: true });
+
+                // --- 궤도선 생성 ---
+                const points = []; // 궤도 점들을 저장할 배열
+                const segments = 128; // 궤도를 구성할 점의 개수 (많을수록 부드러움)
+                const orbitRadius = data.distance; // 행성의 공전 반경 사용
+
+                // 원 궤적을 따라 점 생성 (x-z 평면)
+                for (let i = 0; i <= segments; i++) {
+                    const angle = (i / segments) * Math.PI * 2; // 0부터 2PI까지 각도 계산
+                    points.push(
+                        new THREE.Vector3(
+                            Math.cos(angle) * orbitRadius, // x 좌표
+                            0,                             // y 좌표 (평면 궤도)
+                            Math.sin(angle) * orbitRadius  // z 좌표
+                        )
+                    );
+                }
+
+                // 점들로부터 Geometry 생성
+                const orbitGeometry = new THREE.BufferGeometry().setFromPoints(points);
+
+                // 궤도선 재질 설정 (얇고 약간 투명한 회색)
+                const orbitMaterial = new THREE.LineBasicMaterial({
+                    color: 0xcccccc,      // 선 색상 (밝은 회색)
+                    transparent: true,    // 투명도 사용 활성화
+                    opacity: 0.4          // 투명도 값 (0 ~ 1)
+                });
+
+                // LineLoop 객체 생성 (시작점과 끝점이 연결된 선)
+                const orbitLine = new THREE.LineLoop(orbitGeometry, orbitMaterial);
+                scene.add(orbitLine); // Scene에 궤도선 추가
+            });
+
+
+            // Controls 설정
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.screenSpacePanning = false;
+            controls.minDistance = 5;
+            controls.maxDistance = 500;
+
+            // --- 배속 버튼 이벤트 리스너 추가 ---
+            const slowDownButton = document.getElementById('slowDown');
+            const speedUpButton = document.getElementById('speedUp');
+
+            if (slowDownButton) {
+                slowDownButton.addEventListener('click', () => {
+                    timeScale = Math.max(minTimeScale, timeScale / 1.5);
+                    updateSpeedDisplay();
+                });
+            }
+
+            if (speedUpButton) {
+                speedUpButton.addEventListener('click', () => {
+                    timeScale = Math.min(maxTimeScale, timeScale * 1.5);
+                    updateSpeedDisplay();
+                });
+            }
+
+            // 초기 속도 표시 업데이트
+            updateSpeedDisplay();
+
+            // 창 크기 변경 리스너
+            window.addEventListener('resize', onWindowResize, false);
+        }
+
+        // 창 크기 변경 처리 함수
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // Animation loop
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const scaledTime = performance.now() * 0.001 * timeScale;
+
+            // --- 행성 공전 및 자전 애니메이션 ---
+            celestialBodies.forEach(body => {
+                if (body.isPlanet) {
+                    const planetMesh = body.mesh;
+                    const data = body.data;
+                    const baseOrbitSpeed = data.period ? (2 * Math.PI) / (data.period / 30) : 0;
+                    const angle = scaledTime * baseOrbitSpeed;
+
+                    planetMesh.position.x = Math.cos(angle) * data.distance;
+                    planetMesh.position.z = Math.sin(angle) * data.distance;
+                    planetMesh.rotation.y += 0.01 * timeScale;
+                }
+            });
+
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        // 페이지 로드 완료 후 초기화 및 애니메이션 시작
+        window.onload = () => {
+            init();
+            animate();
+        };
+    </script>
+</body>
+</html>
+```
+
+이제 각 행성의 공전 경로를 나타내는 옅은 회색 선들이 보일 것입니다. 이 선들은 행성들의 움직임을 이해하는 데 도움을 줄 수 있습니다.
+
+`Preview` 버튼을 눌러 확인해 보
