@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3D 태양계 시뮬레이션 (궤도선, 배속 기능)</title> <script src="https://cdn.tailwindcss.com"></script>
+    <title>3D 태양계 시뮬레이션 (궤도선, 배속 기능)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
     <style>
         /* 기본 스타일 */
         body {
@@ -17,14 +18,18 @@
         #info {
             position: absolute;
             top: 10px;
-            width: 100%;
+            left: 50%; /* 가운데 정렬 */
+            transform: translateX(-50%); /* 가운데 정렬 */
+            width: auto; /* 내용에 맞게 너비 조절 */
+            max-width: 90%; /* 최대 너비 제한 */
             text-align: center;
             z-index: 100;
             display:block;
-            padding: 10px;
-            background-color: rgba(0, 0, 0, 0.5); /* 반투명 검정 배경 */
+            padding: 10px 15px; /* 좌우 여백 추가 */
+            background-color: rgba(0, 0, 0, 0.6); /* 반투명 검정 배경 */
             border-radius: 8px; /* 둥근 모서리 */
             color: #ffffff;
+            font-size: 0.9rem; /* 약간 작은 글씨 */
         }
         /* 캔버스 스타일 */
         canvas { display: block; }
@@ -54,6 +59,8 @@
             cursor: pointer;
             transition: background-color 0.2s; /* 부드러운 색상 전환 */
             box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06); /* 그림자 */
+            min-width: 40px; /* 버튼 최소 너비 */
+            text-align: center;
         }
         #controls button:hover {
             background-color: #1d4ed8; /* 호버 시 약간 어두운 파란색 (hover:bg-blue-700) */
@@ -68,12 +75,12 @@
 </head>
 <body class="bg-black text-gray-100">
     <div id="info" class="text-sm md:text-base">
-        마우스를 드래그하여 회전, 휠로 확대/축소하세요. +/- 버튼으로 속도 조절.
+        마우스 드래그: 회전 | 휠: 확대/축소 | +/-: 속도 조절
     </div>
 
     <div id="controls">
         <button id="slowDown" title="느리게">-</button>
-        <span id="speedDisplay">Speed: 1.0x</span>
+        <span id="speedDisplay">Speed: 0.5x</span> {/* 초기값 반영 */}
         <button id="speedUp" title="빠르게">+</button>
     </div>
 
@@ -99,12 +106,15 @@
         let timeScale = 0.5; // 초기 애니메이션 속도 배율
         const minTimeScale = 0.1; // 최소 배속
         const maxTimeScale = 10.0; // 최대 배속
+        let lastTime = performance.now(); // 마지막 프레임 시간 추적
 
         // 속도 표시 업데이트 함수
         function updateSpeedDisplay() {
             const displayElement = document.getElementById('speedDisplay');
             if (displayElement) {
-                displayElement.textContent = `Speed: ${timeScale.toFixed(1)}x`;
+                // 소수점 첫째 자리까지 표시, .0이면 정수로 보이게 처리
+                const speedText = timeScale.toFixed(1).replace(/\.0$/, '');
+                displayElement.textContent = `Speed: ${speedText}x`;
             }
         }
 
@@ -126,22 +136,22 @@
             document.body.appendChild(renderer.domElement);
 
             // Lighting 설정
-            const ambientLight = new THREE.AmbientLight(0x444444);
+            const ambientLight = new THREE.AmbientLight(0x666666); // 약간 더 밝게
             scene.add(ambientLight);
 
             // --- 태양 생성 ---
-            const sunGeometry = new THREE.SphereGeometry(5, 32, 32);
+            const sunGeometry = new THREE.SphereGeometry(5, 64, 64); // 더 부드럽게
             const sunMaterial = new THREE.MeshBasicMaterial({ color: 0xffff00 });
             const sun = new THREE.Mesh(sunGeometry, sunMaterial);
             scene.add(sun);
             celestialBodies.push({ mesh: sun, isPlanet: false });
 
             // PointLight (태양 위치)
-            const pointLight = new THREE.PointLight(0xffffff, 3.5, 0, 0);
+            const pointLight = new THREE.PointLight(0xffffff, 3.5, 0, 0); // 밝기 조절 가능
             sun.add(pointLight);
 
             // --- 행성 데이터 정의 ---
-            const planetData = [ // 로컬 변수로 변경해도 무방 (forEach 내에서만 사용)
+            const planetData = [
                 { name: '수성', size: 0.5, color: 0xaaaaaa, distance: 10, period: 88 },
                 { name: '금성', size: 0.8, color: 0xffffe0, distance: 15, period: 225 },
                 { name: '지구', size: 1.0, color: 0x4682b4, distance: 21, period: 365 },
@@ -162,40 +172,39 @@
                     metalness: 0.2
                 });
                 const planet = new THREE.Mesh(planetGeometry, planetMaterial);
-                planet.position.x = data.distance; // 초기 위치
+                planet.position.x = data.distance; // 초기 위치 (X축 양의 방향)
                 scene.add(planet);
-                celestialBodies.push({ mesh: planet, data: data, isPlanet: true });
+                celestialBodies.push({
+                    mesh: planet,
+                    data: data,
+                    isPlanet: true,
+                    currentAngle: 0, // 각 행성의 현재 공전 각도 저장
+                    orbitSpeedFactor: data.period ? (2 * Math.PI) / (data.period / 30) : 0 // 미리 계산 (기존 로직 유지)
+                });
 
                 // --- 궤도선 생성 ---
-                const points = []; // 궤도 점들을 저장할 배열
-                const segments = 128; // 궤도를 구성할 점의 개수 (많을수록 부드러움)
-                const orbitRadius = data.distance; // 행성의 공전 반경 사용
+                const points = [];
+                const segments = 128;
+                const orbitRadius = data.distance;
 
-                // 원 궤적을 따라 점 생성 (x-z 평면)
                 for (let i = 0; i <= segments; i++) {
-                    const angle = (i / segments) * Math.PI * 2; // 0부터 2PI까지 각도 계산
+                    const angle = (i / segments) * Math.PI * 2;
                     points.push(
                         new THREE.Vector3(
-                            Math.cos(angle) * orbitRadius, // x 좌표
-                            0,                             // y 좌표 (평면 궤도)
-                            Math.sin(angle) * orbitRadius  // z 좌표
+                            Math.cos(angle) * orbitRadius,
+                            0,
+                            Math.sin(angle) * orbitRadius
                         )
                     );
                 }
-
-                // 점들로부터 Geometry 생성
                 const orbitGeometry = new THREE.BufferGeometry().setFromPoints(points);
-
-                // 궤도선 재질 설정 (얇고 약간 투명한 회색)
                 const orbitMaterial = new THREE.LineBasicMaterial({
-                    color: 0xcccccc,      // 선 색상 (밝은 회색)
-                    transparent: true,    // 투명도 사용 활성화
-                    opacity: 0.4          // 투명도 값 (0 ~ 1)
+                    color: 0xcccccc,
+                    transparent: true,
+                    opacity: 0.3 // 약간 더 투명하게
                 });
-
-                // LineLoop 객체 생성 (시작점과 끝점이 연결된 선)
                 const orbitLine = new THREE.LineLoop(orbitGeometry, orbitMaterial);
-                scene.add(orbitLine); // Scene에 궤도선 추가
+                scene.add(orbitLine);
             });
 
 
@@ -204,8 +213,9 @@
             controls.enableDamping = true;
             controls.dampingFactor = 0.05;
             controls.screenSpacePanning = false;
-            controls.minDistance = 5;
+            controls.minDistance = 10; // 너무 가까이 가지 않도록
             controls.maxDistance = 500;
+            controls.target.set(0, 0, 0); // 컨트롤 타겟을 원점으로
 
             // --- 배속 버튼 이벤트 리스너 추가 ---
             const slowDownButton = document.getElementById('slowDown');
@@ -213,14 +223,16 @@
 
             if (slowDownButton) {
                 slowDownButton.addEventListener('click', () => {
-                    timeScale = Math.max(minTimeScale, timeScale / 1.5);
+                    // timeScale을 1.5로 나누는 대신 고정된 값(예: 0.1 또는 0.5) 빼거나, 비율을 조정 (예: 0.8 곱하기)
+                    timeScale = Math.max(minTimeScale, parseFloat((timeScale / 1.5).toFixed(2))); // 소수점 관리
                     updateSpeedDisplay();
                 });
             }
 
             if (speedUpButton) {
                 speedUpButton.addEventListener('click', () => {
-                    timeScale = Math.min(maxTimeScale, timeScale * 1.5);
+                    // timeScale을 1.5 곱하는 대신 고정된 값 더하거나, 비율 조정 (예: 1.2 곱하기)
+                    timeScale = Math.min(maxTimeScale, parseFloat((timeScale * 1.5).toFixed(2))); // 소수점 관리
                     updateSpeedDisplay();
                 });
             }
@@ -243,30 +255,46 @@
         function animate() {
             requestAnimationFrame(animate);
 
-            const scaledTime = performance.now() * 0.001 * timeScale;
+            // --- DeltaTime 계산 ---
+            const currentTime = performance.now();
+            const deltaTime = (currentTime - lastTime) * 0.001; // 초 단위로 변환
+            lastTime = currentTime; // 다음 프레임을 위해 현재 시간 저장
+
+            // 애니메이션 일시정지 방지 (탭 전환 등) - deltaTime이 너무 크면 건너뛰기
+            if (deltaTime > 0.1) {
+                return; // 예: 0.1초 이상 지연되면 해당 프레임 스킵
+            }
+
+            const effectiveDeltaTime = deltaTime * timeScale; // 실제 적용될 시간 변화량
 
             // --- 행성 공전 및 자전 애니메이션 ---
             celestialBodies.forEach(body => {
                 if (body.isPlanet) {
                     const planetMesh = body.mesh;
                     const data = body.data;
-                    const baseOrbitSpeed = data.period ? (2 * Math.PI) / (data.period / 30) : 0;
-                    const angle = scaledTime * baseOrbitSpeed;
 
-                    planetMesh.position.x = Math.cos(angle) * data.distance;
-                    planetMesh.position.z = Math.sin(angle) * data.distance;
-                    planetMesh.rotation.y += 0.01 * timeScale;
+                    // 1. 공전 각도 업데이트 (DeltaTime 사용)
+                    const angleChange = body.orbitSpeedFactor * effectiveDeltaTime;
+                    body.currentAngle += angleChange; // 현재 각도에 변화량 누적
+
+                    // 2. 새 각도를 이용해 위치 계산
+                    planetMesh.position.x = Math.cos(body.currentAngle) * data.distance;
+                    planetMesh.position.z = Math.sin(body.currentAngle) * data.distance;
+
+                    // 3. 자전 (DeltaTime 사용)
+                    const rotationSpeed = 0.5; // 기본 자전 속도 (초당 라디안)
+                    planetMesh.rotation.y += rotationSpeed * effectiveDeltaTime;
                 }
             });
 
-            controls.update();
+            controls.update(); // damping 적용 위해 필요
             renderer.render(scene, camera);
         }
 
         // 페이지 로드 완료 후 초기화 및 애니메이션 시작
         window.onload = () => {
             init();
-            animate();
+            animate(); // 애니메이션 루프 시작
         };
     </script>
 </body>
